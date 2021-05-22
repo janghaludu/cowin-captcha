@@ -1,0 +1,4 @@
+CairoSVG==2.5.2
+mahotas==1.4.11
+numpy==1.20.3
+opencv-python==4.5.2.52
