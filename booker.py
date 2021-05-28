@@ -383,11 +383,13 @@ class Vaxxer:
                 self.bookAppointment()
                 self.scheduleAttempts += 1
                 
+        # Happens when there is an issue with OTP delivery or your OTP Automation tool.
+        # Stops Code Execution
         except AttributeError:
             print("**** Session End ****")
             logging.error("**** Session End ****")
             
-            
+        # For handling infinite requests to OTP generation API  
         except RateLimitException:
             print("Pausing Code Execution for 5 minutes to prevent too many OTP requests")
             logging.info("Pausing Code Execution for 5 minutes to prevent too many OTP requests")
