@@ -40,7 +40,7 @@ logging.basicConfig(filename='booker.log', filemode='w',
 
 
 
-def nowStamp(): return 0, int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
+def nowStamp(): return datetime.utcnow(), int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
 
 
 ### Download Retry Decorator ###
