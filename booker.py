@@ -33,6 +33,7 @@ import logging
 from copy import deepcopy
 from datetime import datetime
 from hashlib import sha256
+from ratelimit import limits, RateLimitException
 
 logging.basicConfig(filename='booker.log', filemode='w', 
                     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -89,7 +90,7 @@ def downloadRetry(func, serverErrorCodes, authenticationErrorCodes):
        
 downloadRetryer = partial(downloadRetry, 
                           serverErrorCodes=[429, 408, 500, 502, 504], 
-                          authenticationErrorCodes = [401])
+                          authenticationErrorCodes = [401, 400])
 
 ### CONSTANTS ###
 
@@ -99,7 +100,7 @@ SECRET = "U2FsdGVkX18s/oUTUJOmDy27XnsU5MQK+iwUroz0Qt8GFhlG76l3NzNxxJxtm2BptyYFmT
 OTPvALIDATEuRL = "https://cdn-api.co-vin.in/api/v2/auth/validateMobileOtp"
 GETsESSIONSuRL = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByDistrict?district_id={DID}&date={DS}"
 SCHEDULEuRL = "https://cdn-api.co-vin.in/api/v2/appointment/schedule"
-CAPTCHAdECODEuRL = "http://localhost:8000/"
+CAPTCHAdECODEuRL = "http://localhost:8000"
 
 baseHeaders = {
     "user-agent": "Mozilla/5.0 (Linux; Android 8.0.0; Pixel 2 XL Build/OPD1.170816.004) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.72 Mobile Safari/537.36", 
@@ -205,7 +206,7 @@ class Vaxxer:
         
         
         
-        
+    @limits(calls=3, period=300)   
     def generateOtp(self):
         lastOtp = self.lastOtp
         otpGenResponse = self.post(OTPgENuRL, {"mobile" : self.phoneNumber, "secret" : SECRET}, minHeaders, "OTP Generation")
@@ -273,7 +274,7 @@ class Vaxxer:
         otpHash = sha256(str(self.otp.strip()).encode("utf-8")).hexdigest()
         logging.info(f"OTP Validation API call")
         tokenData = self.post(OTPvALIDATEuRL, {"otp" : otpHash, "txnId": self.txnId}, baseHeaders, "Token Refresh")
-        logging.info(str(tokenData.status_code), str(tokenData.content))
+        logging.info(str(tokenData.status_code), tokenData.json())
         token = tokenData.json()['token']
         tokenGeneratedAt = nowStamp()[1]
         self.token = token
@@ -383,8 +384,15 @@ class Vaxxer:
                 self.scheduleAttempts += 1
                 
         except AttributeError:
-            print("**** Session Ended ****")
+            print("**** Session End ****")
             logging.error("**** Session End ****")
+            
+            
+        except RateLimitException:
+            print("Pausing Code Execution for 5 minutes to prevent too many OTP requests")
+            logging.info("Pausing Code Execution for 5 minutes to prevent too many OTP requests")
+            time.sleep(300)
+            self.run()
 
 
         
