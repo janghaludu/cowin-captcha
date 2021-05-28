@@ -9,16 +9,12 @@
 #### 4) booker.log is where logs are stored. {phoneNumber}.json is where the state of booking is stored
 
 
-# vaccer = Vaxxer(9999999999, ["581"], '4s7oQvpnybgERS9ftC3duv4', 3, "COVISHIELD, COVAXIN, SPUTNIK", 18, 1)
+# vaccer = Vaxxer(9999999999, ["581"], '4s7oQvpnybgERS9ftC3duv4')
 # vaccer.run()
 
 # 9999999999 => phoneNumber
 # ["581"] => Array of District codes
 # 4s9oQjpnybpGS9ftZ3duv4 => Your KVDB bucket name
-# 3 => Delay in seconds to avoid 429 errors
-# "COVISHIELD, COVAXIN, SPUTNIK" => Preferred Vaccines
-# 18 => 18 or 45 for age limit
-# 1 => 1 or 2 for Dose Number
 
 ######################################################
 
@@ -89,7 +85,7 @@ def downloadRetry(func, serverErrorCodes, authenticationErrorCodes):
        
 downloadRetryer = partial(downloadRetry, 
                           serverErrorCodes=[429, 408, 500, 502, 504], 
-                          authenticationErrorCodes = [401, 400])
+                          authenticationErrorCodes = [401])
 
 ### CONSTANTS ###
 
@@ -99,7 +95,7 @@ SECRET = "U2FsdGVkX18s/oUTUJOmDy27XnsU5MQK+iwUroz0Qt8GFhlG76l3NzNxxJxtm2BptyYFmT
 OTPvALIDATEuRL = "https://cdn-api.co-vin.in/api/v2/auth/validateMobileOtp"
 GETsESSIONSuRL = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByDistrict?district_id={DID}&date={DS}"
 SCHEDULEuRL = "https://cdn-api.co-vin.in/api/v2/appointment/schedule"
-CAPTCHAdECODEuRL = "http://localhost:8000"
+CAPTCHAdECODEuRL = "http://localhost:8000/"
 
 baseHeaders = {
     "user-agent": "Mozilla/5.0 (Linux; Android 8.0.0; Pixel 2 XL Build/OPD1.170816.004) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.72 Mobile Safari/537.36", 
@@ -115,7 +111,7 @@ minHeaders = {"user-agent" : baseHeaders["user-agent"]}
 authHeaders = deepcopy(baseHeaders)
 
 
-### Astra Janaka / Markata Malayudha / Sphatika Praptirastu! ###
+### Astra Janaka / Markata Malayudha Praptirastu! ###
 
 
 @dataclass
@@ -124,7 +120,7 @@ class Vaxxer:
     districtIds: tuple # Comma separated IDs of districts where you want to get vaccinated
     kvdbBucket: str # Sign up and create a bucket from here => https://kvdb.io/start
     delay: float = 2.8 # Increase / Decrease this based on how the rate limit evolves
-    preferredVaccines: str = "COVISHIELD, COVAXIN, SPUTNIK"
+    preferredVaccines: str = "COVISHIELD"
     ageLimit: int = 18
     doseNumber: int = 1
     scheduled: bool = False # Flag for stopping the script. Changes when all beneficiaries get appointments
@@ -273,7 +269,7 @@ class Vaxxer:
         otpHash = sha256(str(self.otp.strip()).encode("utf-8")).hexdigest()
         logging.info(f"OTP Validation API call")
         tokenData = self.post(OTPvALIDATEuRL, {"otp" : otpHash, "txnId": self.txnId}, baseHeaders, "Token Refresh")
-        logging.info(tokenData.status_code, tokenData.text)
+        logging.info(str(tokenData.status_code), str(tokenData.content))
         token = tokenData.json()['token']
         tokenGeneratedAt = nowStamp()[1]
         self.token = token
@@ -311,7 +307,6 @@ class Vaxxer:
                 print(districtSessionsResponse.text)
 
         sessions = [x for y in sessions for x in y]
-        #print(sessions)
         relevantSessions = [x for x in sessions if x['min_age_limit'] == self.ageLimit \
                             and x[f"available_capacity_dose{self.doseNumber}"] > 0 \
                             and x['fee_type'] != 'Free' \
@@ -367,6 +362,9 @@ class Vaxxer:
                                 self.scheduled = True
                                 print("**** HURRAY! All done! ****")
                                 logging.info("**** Session End ****")
+                                
+                        else:
+                            print(scheduleResponse.status_code, scheduleResponse.text)
                                 
                                 
                                 
