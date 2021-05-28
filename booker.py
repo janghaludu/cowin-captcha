@@ -9,12 +9,16 @@
 #### 4) booker.log is where logs are stored. {phoneNumber}.json is where the state of booking is stored
 
 
-# vaccer = Vaxxer(9999999999, ["581"], '4s7oQvpnybgERS9ftC3duv4')
+# vaccer = Vaxxer(9999999999, ["581"], '4s7oQvpnybgERS9ftC3duv4', 3, "COVISHIELD, COVAXIN, SPUTNIK", 18, 1)
 # vaccer.run()
 
 # 9999999999 => phoneNumber
 # ["581"] => Array of District codes
 # 4s9oQjpnybpGS9ftZ3duv4 => Your KVDB bucket name
+# 3 => Delay in seconds to avoid 429 errors
+# "COVISHIELD, COVAXIN, SPUTNIK" => Preferred Vaccines
+# 18 => 18 or 45 for age limit
+# 1 => 1 or 2 for Dose Number
 
 ######################################################
 
