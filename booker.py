@@ -3,6 +3,7 @@
 #### 1) Create a bucket on KVDB => https://kvdb.io/start
 #### 2) Configure IFTTT / Shortcuts on your phone.
 ####    Refer to this => https://github.com/bombardier-gif/covid-vaccine-booking#ifttt-steps-in-screenshots
+####    There is just one difference, you need to add 
 ####    Add the KVDB URL to IFFT / Shortcuts as elaborated in the link above
 #### 3) Start chalice server for decoding CAPTCHA => https://github.com/janghaludu/cowin-captcha
 ####    Alternatively you can simply import functions from app.py in root folder and change a line here
@@ -166,6 +167,7 @@ class Vaxxer:
     doseNumber: int = 1
     scheduled: bool = False # Flag for stopping the script. Changes when all beneficiaries get appointments
     otp: str = 'NA'
+    otpUsedForToken: str = 'NA'
     scheduledBeneficiaries: tuple = () # Beneficiaries with confirmed appointments in the current session
     otpGeneratedAt: int = 42
     otpCapturedAt: int = 84
@@ -181,7 +183,7 @@ class Vaxxer:
         print("***** Session Init *****")
         self.preferredVaccines = [x.strip() for x in self.preferredVaccines.split(",")]
         self.scheduledBeneficiaries = []
-        self.lastOtp = self.get(f"https://kvdb.io/{self.kvdbBucket}/{self.phoneNumber}", {}, "Last OTP [Post Init]").text.split(".")[0].split()[-1].strip()
+        self.otp = self.get(f"https://kvdb.io/{self.kvdbBucket}/{self.phoneNumber}", {}, "Last OTP [Post Init]").text.split(".")[0].split()[-1].strip()
         authHeaders["authorization"] = f'Bearer {self.token}'
         
         if f'{self.phoneNumber}.json' not in os.listdir():
@@ -192,14 +194,15 @@ class Vaxxer:
                 lastData = json.load(f)
                 
             self.token = lastData["token"]
-            self.otpGeneratedAt = lastData.get("otpGeneratedAt", "NA")
-            self.otpCapturedAt = lastData.get("otpCapturedAt", "NA")
-            self.tokenGeneratedAt = lastData.get("tokenGeneratedData", "NA")
+            self.otpGeneratedAt = lastData.get("otpGeneratedAt", 42)
+            self.otpCapturedAt = lastData.get("otpCapturedAt", 52)
+            self.tokenGeneratedAt = lastData.get("tokenGeneratedData", 62)
             self.scheduled = lastData.get("scheduled", False)
             self.otpServiceIsHavingIssuesProbably = 0
             self.scheduleAttempts = 1
             self.preferredVaccines = lastData.get("preferredVaccines")
             self.relevantSessions = lastData.get("relevantSessions")
+            self.otpUsedForToken = lastData.get('otpUsedForToken')
                 
                 
                 
@@ -246,69 +249,44 @@ class Vaxxer:
         
     @limits(calls=3, period=300)   
     def generateOtp(self):
-        lastOtp = self.lastOtp
         otpGenResponse = self.post(OTPgENuRL, {"mobile" : self.phoneNumber, "secret" : SECRET}, minHeaders, "OTP Generation")
         self.otpGeneratedAt = nowStamp()[1]
-        self.newOtpCaptured = False
+        self.otpCaptured = False
+        self.otpValidated = False
         self.txnId = otpGenResponse.json()['txnId']
-        self.newOtpCaptured = False
         self.otpCaptureAttempts = 0
         self.modifyUserData({
             'otpGeneratedAt' : self.otpGeneratedAt, 
-            'lastOtp' : lastOtp, 
             'txnId' : otpGenResponse.json()['txnId'],
-            'newOtpCaptured' : False,
+            'otpCaptured' : False,
             'otpCaptureAttempts' : 0
         })
             
         
-            
-                        
-
     def getOtp(self):
-        otp = self.get(f"https://kvdb.io/{self.kvdbBucket}/{self.phoneNumber}", {}, "Get OTP").text.split(".")[0].split()[-1].strip()
-        return otp
+        otpData = self.get(f"https://kvdb.io/{self.kvdbBucket}/{self.phoneNumber}", {}, "Get OTP").text
+        otp = otpData.split(".")[0].split()[-1].strip()
+        capturedAt = otpData.split("CoWIN")[-1].strip().replace("at", "").replace('"', '').strip()
+        return {"otp" : otp, "capturedAt" : capturedAt}
     
     
-    def refreshToken(self):
-        self.generateOtp()
-        self.otpCaptureAttempts = 0
-        while not self.newOtpCaptured and self.otpCaptureAttempts < 10:
-            time.sleep(5)
-            otp = self.getOtp()
-            logging.info(f"OTP => {otp}, Last OTP => {self.lastOtp}")
-            self.otpCaptureAttempts += 1
-            
-            if otp != self.lastOtp:
-                self.otpServiceIsHavingIssuesProbably = 0
-                self.otp = otp
-                self.newOtpCaptured = True
-                self.otpCapturedAt = nowStamp()[1]
-                self.modifyUserData({
-                    'otpCapturedAt' : self.otpCapturedAt,
-                    'otp' : otp,
-                    'otpServiceIsHavingIssuesProbably' : 0
-                })
-                
+    def postOtpCapture(self, otp1, otp2, n):
+        self.otp = otp1
+        self.otpServiceIsHavingIssuesProbably = 0
+        self.lastOtp = otp2
+        self.otpCaptured = True
+        self.otpCapturedAt = nowStamp()[1]
         self.modifyUserData({
-            'newOtpCaptured' : self.newOtpCaptured,
-            'otpCaptureAttempts' : self.otpCaptureAttempts,
+            'otpCapturedAt' : self.otpCapturedAt,
+            'otp' : self.otp,
+            'lastOtp' : self.lastOtp,
+            'otpServiceIsHavingIssuesProbably' : self.otpServiceIsHavingIssuesProbably,
+            'otpCaptured' : self.otpCaptured,
+            'otpCaptureAttempts' : n
         })
         
-        if self.newOtpCaptured == False:
-            self.otpServiceIsHavingIssuesProbably += 10
-            self.otp = self.lastOtp
-            
-            if self.otpServiceIsHavingIssuesProbably >= 20:
-                print("OTP Service is facing Issues OR Something is wrong with your OTP Automation")
-                print("Check your OTP Automation Service logs")
-                print("Check SMS logs on your phone")
-                print("Try logging in from COWIN website and see if you are able to receive SMS")
-                print("Check the logs in app.log file")
-                logging.warning("OTP Service is facing Issues OR Something is wrong with your OTP Automation")
-                self.scheduled = -1
-                self.error = True
-            
+        
+    def validateOtp(self):
         otpHash = sha256(str(self.otp.strip()).encode("utf-8")).hexdigest()
         logging.info(f"OTP Validation API call")
         tokenData = self.post(OTPvALIDATEuRL, {"otp" : otpHash, "txnId": self.txnId}, baseHeaders, "Token Refresh")
@@ -316,13 +294,93 @@ class Vaxxer:
         token = tokenData.json()['token']
         tokenGeneratedAt = nowStamp()[1]
         self.token = token
-        self.otp = otp
         self.tokenGeneratedAt = tokenGeneratedAt
-        self.modifyUserData({'token' : token, "otp" : otp, "tokenGeneratedAt" : tokenGeneratedAt})
+        self.otpUsedForToken = self.otp
+        self.modifyUserData({'token' : token, "tokenGeneratedAt" : tokenGeneratedAt, "otpUsedForToken" : self.otp})
         authHeaders["authorization"] = f"Bearer {self.token}"
-                
+        
+    
+    def refreshToken(self):
+        otpAtKvdbData = self.getOtp()
+        otpAtKvdb = otpAtKvdbData["otp"]
+        
+        try:
+            optAtKvdbCapturedAt = int(datetime.timestamp(datetime.strptime(otpAtKvdbData["capturedAt"], '%b %d, %Y %I:%M%p').astimezone()))
+        except:
+            optAtKvdbCapturedAt = 42
+            
+        # If the Token hasn't expired yet,
+        # Get the fuck outta here.
+        
+        # It doesn't matter if we requested more OTPs
+        # after this Token has been generated and 
+        # maybe some of them were delivered to your device
+        # and some weren't and out of those delivered
+        # some were captured at KVDB and some weren't.
+        # Because MULTIPLE VALID TOKENS CAN EXIST SIMULTANEOUSLY
+        
+    
+        if nowStamp()[1] - self.tokenGeneratedAt < 890:
+            return "Active Token Exists!"
+        
+        
+        #else:
+            
+        # Lets look at different cases
+
+        
+        # Case 1
+        # ======
+        
+        # OTP was captured < 3 minutes ago.
+        # Token hasn't been generated yet against this
+        # (We wouldn't be here otherwise)
+        # We try to validate the OTP, generate a new Token 
+        # and go about our business
+        
+        if nowStamp()[1] - optAtKvdbCapturedAt <= 160 and \
+        self.otpUsedForToken != otpAtKvdb:
+            self.postOtpCapture(otpAtKvdb, "NA", 0)
+            self.validateOtp()
+            
+
+        
+        
+        # Case 2
+        # ======
+        # OTP was captured > 3 minutes ago
+        # Doesn't matter whether a Token has been generated against this,
+        # We request for a New OTP 
+        # And go ahead with our business
             
             
+        elif nowStamp()[1] - optAtKvdbCapturedAt > 160:
+            self.generateOtp()
+            while not self.otpCaptured and self.otpCaptureAttempts < 10:
+                time.sleep(5)
+                self.otpCaptureAttempts += 1
+                latestOtpAtKvdb = self.getOtp()["otp"]
+                logging.info(f"Old OTP => {otpAtKvdb}, Latest OTP => {latestOtpAtKvdb}")
+                if otpAtKvdb != latestOtpAtKvdb:
+                    self.postOtpCapture(latestOtpAtKvdb, otpAtKvdb, self.otpCaptureAttempts)
+                    self.validateOtp()
+
+        
+        
+        
+        if self.otpCaptured == False:
+            print("OTP Service is facing Issues OR Something is wrong with your OTP Automation")
+            print("Check your OTP Automation Service logs")
+            print("Check SMS logs on your phone")
+            print("Try logging in from COWIN website and see if you are able to receive SMS")
+            print("Check the logs in app.log file")
+            logging.warning("OTP Service is facing Issues OR Something is wrong with your OTP Automation")
+            self.scheduled = -1
+            self.error = True
+            
+    
+            
+               
     def getBeneficiaries(self):
         beneficiariesData = self.get(BENEFICIARIESuRL, authHeaders, "Getting Beneficiaries")
         beneficiaries = beneficiariesData.json()["beneficiaries"]
@@ -331,7 +389,10 @@ class Vaxxer:
         unscheduledBenificiaries = beneficiaryIds
         self.unscheduledBenificiaries = unscheduledBenificiaries
         
-        logging.info('No Appointment Bunnies: ' + ', '.join([' => '.join([x["name"], x["beneficiary_reference_id"]]) for x in beneficiaries \
+        if unscheduledBenificiaries == []:
+            self.scheduled = True
+        
+        logging.info('Beneficiaries without Appointments: ' + ', '.join([' => '.join([x["name"], x["beneficiary_reference_id"]]) for x in beneficiaries \
               if x ["beneficiary_reference_id"] in unscheduledBenificiaries]))
     
     
@@ -428,7 +489,7 @@ class Vaxxer:
                                 
     def run(self):
         try:
-            while not self.scheduled and self.otpServiceIsHavingIssuesProbably < 20:
+            while not self.scheduled:
                 logging.info(f"Appointment Scheduling Attempt No.{self.scheduleAttempts}")
                 print(f"Appointment Scheduling Attempt No.{self.scheduleAttempts} at {nowStamp()[1]}")
                 self.getBeneficiaries()
@@ -436,9 +497,30 @@ class Vaxxer:
                 self.bookAppointment()
                 self.scheduleAttempts += 1
                 
+                
+        # Happens when self.error == True which leads to None object
+        # being returned as response to self.get and self.post methods
+        # self.error becomes True when > 20 OTP capture attempts from kvdb.io 
+        # don't return the new OTP
+        
+        # Possible Reasons
+        
+        # 1) OTP generation issues from server
+        # 2) Issues with your OTP Automation tool - IFTTP / Shortcuts
+        # 3) Unidentified bug in this code
+        
+        # Check your SMS logs, OTP Automation tool logs and logs for this session
+        # Restart the script
+        
         except AttributeError:
             print("**** Session End ****")
             logging.error("**** Session End ****")
+            
+            
+            
+        # Happens when more than 3 OTP generation requests are made within
+        # a span of 5 minutes
+        # 
             
             
         except RateLimitException:
