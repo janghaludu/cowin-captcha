@@ -35,13 +35,15 @@ from datetime import datetime
 from hashlib import sha256
 from ratelimit import limits, RateLimitException
 
-logging.basicConfig(filename='booker.log', filemode='w', 
+def nowStamp(): return datetime.utcnow(), int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
+
+
+logging.basicConfig(filename=f'booker-{nowStamp()[1]}.log', filemode='w', 
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 
 
 
-def nowStamp(): return datetime.utcnow(), int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
 
 
 ### Download Retry Decorator ###
@@ -57,34 +59,68 @@ def downloadRetry(func, serverErrorCodes, authenticationErrorCodes):
         
         retries = 0
         
-        ### Do something for Server Errors ###
-        
-        while retries < 5 and data.status_code not in [200, 201] and data.status_code in serverErrorCodes:
+        if data.status_code != 200:
             logging.info(f"{data.text} for {args[-1]} API call")
             logging.info(f'Signature: {signature}')
             logging.info(f'Error Type: {data.status_code}')
-            logging.info(f'Retry: Attempt No.{retries+1} after sleeping for {retries*10 + 10} seconds')
+            logging.info(f'Response Data: {data.text}')
             
+            
+        ### Log Unanticipated Errors and Retry I guess? ### 
+        
+        while retries < 5 and data.status_code not in serverErrorCodes + authenticationErrorCodes + [200]:
+            print(f"Unanticipated Error => {data.status_code}")
+            logging.info(f"Unanticipated Error => {data.status_code}")
+            #time.sleep(retries*10 + 10)
+            data = func(*args, **kwargs)
+            retries += 1
+        
+            
+        ### Do something for Server Errors ###
+        
+        while retries < 5 and data.status_code in serverErrorCodes:
+            logging.info(f'Retry: Attempt No.{retries+1} after sleeping for {retries*10 + 10} seconds')
             time.sleep(retries*10 + 10)
             data = func(*args, **kwargs)
             retries += 1
+            
             
         ### Do something for Client Fuckery ###
         ### Like token refresh for example ###
             
         while retries < 5 and data.status_code in authenticationErrorCodes:
-            logging.info(f"{data.text} for {args[-1]} API call")
-            logging.info(f'Signature: {signature}')
-            logging.info(f'Error Type: {data.status_code}')
-            logging.info(f'Retry: Attempt No.{retries+1} after sleeping for {retries*10 + 10} seconds')
             vaxxer = args[0]
-            if retries != 0:
-                time.sleep(retries*10 + 10)
-            vaxxer.refreshToken()
+            #time.sleep(3)
+            
+            
+            #if data.headers.get('content-type') == 'application/json':
+            try:
+                jsonResponse = data.json()
+                logging.info(f"JSON Response - {jsonResponse} with Error Code - {data.status_code}")
+                if jsonData.get("errorCode") not in ["APPOIN0045", "APPOIN0040"]:
+                    logging.info(f'Retry: Attempt No.{retries+1}')
+                    vaxxer.refreshToken()
+                    
+                else:
+                    # CAPTCHA failed so generate another
+                    newCaptchaText = vaxxer.refreshCaptcha()
+                    args[2]["captcha"] = newCaptchaText
+                    
+            except:
+                textResponse = data.text
+                logging.info(f"Text Response - {textResponse} with Error Code - {data.status_code}")
+                if textResponse == "Unauthenticated access!":
+                    logging.info(f'Retry: Attempt No.{retries+1}')
+                    vaxxer.refreshToken()
+                    
+                
             data = func(*args, **kwargs)
             retries += 1
+            
+            
         return data
     
+        
     return wrapper
 
        
@@ -147,12 +183,14 @@ class Vaxxer:
         self.scheduledBeneficiaries = []
         self.lastOtp = self.get(f"https://kvdb.io/{self.kvdbBucket}/{self.phoneNumber}", {}, "Last OTP [Post Init]").text.split(".")[0].split()[-1].strip()
         authHeaders["authorization"] = f'Bearer {self.token}'
+        
         if f'{self.phoneNumber}.json' not in os.listdir():
             with open(f'{self.phoneNumber}.json', 'w') as f:
                 json.dump(self.__dict__, f)
         else:
             with open(f'{self.phoneNumber}.json', 'r') as f:
                 lastData = json.load(f)
+                
             self.token = lastData["token"]
             self.otpGeneratedAt = lastData.get("otpGeneratedAt", "NA")
             self.otpCapturedAt = lastData.get("otpCapturedAt", "NA")
@@ -288,7 +326,7 @@ class Vaxxer:
     def getBeneficiaries(self):
         beneficiariesData = self.get(BENEFICIARIESuRL, authHeaders, "Getting Beneficiaries")
         beneficiaries = beneficiariesData.json()["beneficiaries"]
-        beneficiaryIds = [x['beneficiary_reference_id'] for x in beneficiaries if  x["vaccination_status"] == "Not Vaccinated"]
+        beneficiaryIds = [x['beneficiary_reference_id'] for x in beneficiaries if  x["vaccination_status"] == "Not Vaccinated" and not x.get("appointments")]
         todayString = "-".join(reversed(str(nowStamp()[0]).split()[0].split("-")))
         unscheduledBenificiaries = beneficiaryIds
         self.unscheduledBenificiaries = unscheduledBenificiaries
@@ -325,6 +363,22 @@ class Vaxxer:
             'relevantSessions' : self.relevantSessions
         })
 
+        
+    def refreshCaptcha(self):
+        print("Refreshing CAPTCHA")
+        logging.info("Refreshing CAPTCHA")
+        logging.info(f"Scheduling API call at {nowStamp()[1]}")
+        captchaUrl = "https://cdn-api.co-vin.in/api/v2/auth/getRecaptcha"
+        capt = self.post(captchaUrl, {}, authHeaders, "Captcha Generation")
+        svgtext = capt.json()['captcha']
+        logging.info(f"Captcha SVG => {svgtext}")
+        # Get the CAPTCHA decoding server running on port 8000 first
+        captcha = requests.post(CAPTCHAdECODEuRL, 
+                             json={"captcha" : svgtext}).text
+
+        logging.info(f"Captcha Text => {captcha}")
+        return captcha
+        
     
     def bookAppointment(self):                    
         for session in self.relevantSessions:
@@ -332,15 +386,16 @@ class Vaxxer:
                 for unscheduledBeni in self.unscheduledBenificiaries:
                     if unscheduledBeni not in self.scheduledBeneficiaries:
                         print(f"Scheduling API call at {nowStamp()[1]}")
+                        logging.info(f"Scheduling API call at {nowStamp()[1]}")
                         captchaUrl = "https://cdn-api.co-vin.in/api/v2/auth/getRecaptcha"
                         capt = self.post(captchaUrl, {}, authHeaders, "Captcha Generation")
                         svgtext = capt.json()['captcha']
-                        print(svgtext)
+                        logging.info(f"Captcha SVG => {svgtext}")
                         # Get the CAPTCHA decoding server running on port 8000 first
                         captcha = requests.post(CAPTCHAdECODEuRL, 
                                              json={"captcha" : svgtext}).text
                         
-                        print(captcha)
+                        logging.info(f"Captcha Text => {captcha}")
 
                         scheduleResponse = self.post(
                             SCHEDULEuRL, 
@@ -350,12 +405,10 @@ class Vaxxer:
                                 "slot": slot,
                                 "beneficiaries": [unscheduledBeni],
                                 "captcha" : captcha
-
                             },
                             authHeaders,
                             "Appointment Booking"
-
-                                        )
+                        )
                         if scheduleResponse.status_code in [200, 201]:
                             print("*****************")
                             print(unscheduledBeni)
@@ -383,13 +436,11 @@ class Vaxxer:
                 self.bookAppointment()
                 self.scheduleAttempts += 1
                 
-        # Happens when there is an issue with OTP delivery or your OTP Automation tool.
-        # Stops Code Execution
         except AttributeError:
             print("**** Session End ****")
             logging.error("**** Session End ****")
             
-        # For handling infinite requests to OTP generation API  
+            
         except RateLimitException:
             print("Pausing Code Execution for 5 minutes to prevent too many OTP requests")
             logging.info("Pausing Code Execution for 5 minutes to prevent too many OTP requests")
