@@ -1,3 +1,4 @@
+
 ################# HOW TO RUN THIS ##################
 
 #### 1) Create a bucket on KVDB => https://kvdb.io/start
@@ -56,10 +57,13 @@ from urllib.request import urlopen
 
 def nowStamp(): return datetime.utcnow(), int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
 
+logFiles = [f for f in os.listdir('.') if os.path.isfile(f) and '.log' in f]
 
-logging.basicConfig(filename=f'booker-{nowStamp()[1]}.log', filemode='w', 
-                    format='%(asctime)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+
+
+logging.basicConfig(filename=f'logs-{nowStamp()[1]}.log', filemode='w', 
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            level=logging.INFO)
 
 
 ### Load  Zernike Polynomials and Table
@@ -205,7 +209,7 @@ class Vaxxer:
         
         
     
-    def __post_init__(self):
+    def __post_init__(self):        
         logging.info("***** Session Init *****")
         print("***** Session Init *****")
         self.preferredVaccines = [x.strip() for x in self.preferredVaccines.split(",")]
