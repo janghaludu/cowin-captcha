@@ -10,16 +10,20 @@
 #### 4) booker.log is where logs are stored. {phoneNumber}.json is where the state of booking is stored
 
 
-# vaccer = Vaxxer(9999999999, ["581"], '4s7oQvpnybgERS9ftC3duv4', 3, "COVISHIELD, COVAXIN, SPUTNIK", 18, 1)
-# vaccer.run()
 
-# 9999999999 => phoneNumber
-# ["581"] => Array of District codes
-# 4s9oQjpnybpGS9ftZ3duv4 => Your KVDB bucket name
-# 3 => Delay in seconds to avoid 429 errors
-# "COVISHIELD, COVAXIN, SPUTNIK" => Preferred Vaccines
-# 18 => 18 or 45 for age limit
-# 1 => 1 or 2 for Dose Number
+
+# vaccer = Vaxxer(9999999999, ["505", "506"], '4s7oQvpnybgERS9ftC3duv4', 2.8, "COVISHIELD")
+# while not vaccer.scheduled:
+#     vaccer = Vaxxer(9999999999, ["505", "506"], '4s7oQvpnybgERS9ftC3duv4', 2.8, "COVISHIELD")
+#     vaccer.run()
+
+# 9999999999 => phoneNumber:: Integer
+# ["505", "506"], => Array of District codes:: Array[::String]
+# 4s9oQjpnybpGS9ftZ3duv4 => Your KVDB bucket name:: String
+# 2.8 => Delay in seconds to avoid 429 errors:: Integer
+# "COVISHIELD, COVAXIN, SPUTNIK" => Preferred Vaccines [String of Comma separated values]:: String
+# 18 => 18 or 45 for age limit:: Integer
+# 1 => 1 or 2 for Dose Number:: Integer
 
 ######################################################
 
@@ -35,6 +39,20 @@ from copy import deepcopy
 from datetime import datetime
 from hashlib import sha256
 from ratelimit import limits, RateLimitException
+from collections import Counter
+from hashlib import sha256
+from cairosvg import svg2png
+import re
+import cv2
+import numpy as np
+from mahotas.features import zernike_moments as zernikes
+from random import choice
+from warnings import filterwarnings
+import pickle
+import json
+import string
+import os
+from urllib.request import urlopen
 
 def nowStamp(): return datetime.utcnow(), int((datetime.utcnow() - datetime(1970, 1, 1)).total_seconds())
 
@@ -44,8 +62,17 @@ logging.basicConfig(filename=f'booker-{nowStamp()[1]}.log', filemode='w',
                     level=logging.INFO)
 
 
+### Load  Zernike Polynomials and Table
 
+stragent = 'Mozilla/5.0 (Linux; Android 8.0.0; Pixel 2 XL Build/OPD1.170816.004) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.72 Mobile Safari/537.36'
 
+with open("chalicelib/zerns", "rb") as f:
+    zerns = pickle.load(f)
+       
+with open("chalicelib/indexTags.json", "r") as f:
+    indexTags = json.load(f)
+    
+    
 
 ### Download Retry Decorator ###
 
@@ -137,7 +164,7 @@ SECRET = "U2FsdGVkX18s/oUTUJOmDy27XnsU5MQK+iwUroz0Qt8GFhlG76l3NzNxxJxtm2BptyYFmT
 OTPvALIDATEuRL = "https://cdn-api.co-vin.in/api/v2/auth/validateMobileOtp"
 GETsESSIONSuRL = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByDistrict?district_id={DID}&date={DS}"
 SCHEDULEuRL = "https://cdn-api.co-vin.in/api/v2/appointment/schedule"
-CAPTCHAdECODEuRL = "http://localhost:8000"
+CAPTCHAdECODEuRL = "http://localhost:8000" # Or your chalice deployed url. Not required anymore.
 
 baseHeaders = {
     "user-agent": "Mozilla/5.0 (Linux; Android 8.0.0; Pixel 2 XL Build/OPD1.170816.004) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.72 Mobile Safari/537.36", 
@@ -453,10 +480,13 @@ class Vaxxer:
                         svgtext = capt.json()['captcha']
                         logging.info(f"Captcha SVG => {svgtext}")
                         # Get the CAPTCHA decoding server running on port 8000 first
-                        captcha = requests.post(CAPTCHAdECODEuRL, 
-                                             json={"captcha" : svgtext}).text
+                        # captchaDecoded = requests.post(CAPTCHAdECODEuRL, 
+                        #                      json={"captcha" : svgtext}).text
                         
-                        logging.info(f"Captcha Text => {captcha}")
+                        ### Decode CAPTCHA wiht a function
+                        captchaDecoded = capchaxMacha(svgtext)
+                        
+                        logging.info(f"Captcha Text => {captchaDecoded}")
 
                         scheduleResponse = self.post(
                             SCHEDULEuRL, 
@@ -465,7 +495,7 @@ class Vaxxer:
                                 "session_id": session["session_id"],
                                 "slot": slot,
                                 "beneficiaries": [unscheduledBeni],
-                                "captcha" : captcha
+                                "captcha" : captchaDecoded
                             },
                             authHeaders,
                             "Appointment Booking"
@@ -532,3 +562,133 @@ class Vaxxer:
 
         
         
+### CAPTCHA HELPERS  ###
+
+
+def capchaxMacha(svgtext):
+      #svgtext = svgData['captcha']
+      randStr = ''.join(choice(string.ascii_uppercase + \
+        string.digits) for _ in range(10))
+      svg2png(bytestring=re.sub('(<path d=)(.*?)(fill=\"none\"/>)',
+                                '',svgtext),  
+              write_to=f"{randStr}.png")
+
+      path = randStr + ".png"
+      targetchars = segmentedCharacters(path)
+      for el in targetchars:
+          el[el > 0] = 1
+
+      charZerns = getZerns(targetchars)
+
+      result = []
+      for i,cz in enumerate(charZerns):
+          clozest = closest(cz)
+          charsu = Counter([indexTags.get(c, indexTags.get(str(c))) for c in clozest]).most_common()[0][0]
+          result.append(charsu)
+        
+        
+      os.remove(f"/tmp/{randStr}.png")
+      return ''.join(result)
+
+
+def transformImage(path):
+    im = cv2.imread(path)
+    imgray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+    ret, thresh = cv2.threshold(imgray, 1, 255, 0)
+    img = cv2.threshold(imgray, 1, 255, cv2.THRESH_BINARY)[1]
+    kernel = np.ones((1,1),np.uint8)
+    img  = cv2.dilate(img,kernel,iterations = 2)
+    floodedImage = img.copy()
+    floodedImage = floodedImage.astype("uint8")
+
+    h, w = img.shape[:2]
+    mask = np.zeros((h+2, w+2), np.uint8)
+    img = cv2.bitwise_not(cv2.floodFill(floodedImage, mask, (0,0), 255)[1])
+
+    imgCopy = np.empty_like(img)
+    np.copyto(imgCopy,img)
+    height, width = img.shape
+
+    activeColumnPixelsHistogram = []
+    activePixels = 0
+
+    for col in range(width):
+        whitePixels = 0
+        for row in range(height):
+            if img[row][col] == 255:
+                whitePixels += 1
+                activePixels += 1
+        activeColumnPixelsHistogram.append(whitePixels)
+
+
+
+    samples = np.zeros(shape=(activePixels,2))
+    counter = 0
+    for row in range(height):
+        for col in range(width):
+            if img[row][col] == 255:
+                samples[counter] = np.array([row,col])
+                counter += 1
+
+
+
+    z = np.float32(samples)
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+    flags = cv2.KMEANS_RANDOM_CENTERS
+    K = 5
+    compactness,labels,centers = cv2.kmeans(z,K,None,criteria,10,flags)
+
+    colors = [1,2,3,4,5]
+    copyImage = np.empty_like(img)
+    np.copyto(copyImage,img)
+
+
+
+    for i in range(len(samples)):
+        row,col = int(samples[i][0]),int(samples[i][1])
+        clusterColor = colors[labels[i][0]]
+        copyImage[row][col] = clusterColor
+
+
+    return copyImage
+
+
+def segmentedCharacters(path):
+    chars = []
+    copyImage = transformImage(path)
+    colorsDiscovered = {}
+    for i,row in enumerate(copyImage.transpose()):
+        if sum(row) != 0:
+            for cell in row:
+                if cell != 0:
+                    if cell not in colorsDiscovered:
+                        colorsDiscovered[cell] = [i]
+                    else:
+                        colorsDiscovered[cell] += [i]
+
+                    break
+
+
+    for color, crange in colorsDiscovered.items():
+        chars.append(copyImage[:, min(crange) : max(crange) + 1])
+        
+    return chars
+
+
+
+def getZerns(chars):
+    zerns = []
+    for el in chars:
+        zerns.append(zernikes(el, 10))
+    return zerns
+    
+    
+def closest(zern):
+    dists = []
+    M = len(zerns)
+    D = np.empty(M, dtype=np.float)
+
+    for i,el in enumerate(zerns):
+        D[i] = np.linalg.norm(el-zern)
+        
+    return D.argsort()[:100]
