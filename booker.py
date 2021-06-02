@@ -1,17 +1,32 @@
-
 ################# HOW TO RUN THIS ##################
 
 #### 1) Create a bucket on KVDB => https://kvdb.io/start
-#### 2) Configure IFTTT / Shortcuts on your phone.
+
+#### For Android Phones ####
+
+#### 2) Install and configure IFTTT app on your phone.
+
+# 0) Download and install IFTTT app on your Adroid phone
+# 1) Create an account in ifttt.com (A premium paid account is recommended for a quicker response)
+# 2) Create a new applet
+# 3) If this..... click on Android SMS trigger
+#     Select "New SMS received matches search" and use CoWIN as the search key
+# 4) Then... Choose a service named Webhooks and then select make a web request
+#     Paste the url: https://kvdb.io/ASth4wnvVDPkg2bdjsiqMN/99XXXXXXXX replace 99XXXXXXXX with your phone number
+#     Method is POST
+#     Content Type PlainText
+#     Body: Add ingredient and select Text. Add ingredient and select Occuredat
+
+        
+# 5) Ensure that the battery saver mode, and all other optimizations are removed. The appshould always run (This is the key for quick response).
+# Tip: If your IFTTT is not triggered when your SMS is received: https://www.androidpolice.com/2020/05/30/how-to-prevent-apps-sleeping-in-the-background-on-android/ Also a premium account is faster
+
 ####    Refer to this => https://github.com/bombardier-gif/covid-vaccine-booking#ifttt-steps-in-screenshots
 ####    There is just one difference, you need to add 
 ####    Add the KVDB URL to IFFT / Shortcuts as elaborated in the link above
 #### 3) Start chalice server for decoding CAPTCHA => https://github.com/janghaludu/cowin-captcha
 ####    Alternatively you can simply import functions from app.py in root folder and change a line here
 #### 4) booker.log is where logs are stored. {phoneNumber}.json is where the state of booking is stored
-
-
-
 
 # vaccer = Vaxxer(9999999999, ["505", "506"], '4s7oQvpnybgERS9ftC3duv4', 2.8, "COVISHIELD")
 # while not vaccer.scheduled:
