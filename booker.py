@@ -28,6 +28,13 @@
 ####    Alternatively you can simply import functions from app.py in root folder and change a line here
 #### 4) booker.log is where logs are stored. {phoneNumber}.json is where the state of booking is stored
 
+#### For iPhones ####
+# Follow the instructions here => https://github.com/bombardier-gif/covid-vaccine-booking#shortcuts-steps-in-screenshots
+# Why this sucks => https://www.reddit.com/r/shortcuts/comments/da1bjx/automations/
+
+##  Configure stuff on Shortcuts with your kvdb url etc and rest is all the same.
+
+
 # vaccer = Vaxxer(9999999999, ["505", "506"], '4s7oQvpnybgERS9ftC3duv4', 2.8, "COVISHIELD")
 # while not vaccer.scheduled:
 #     vaccer = Vaxxer(9999999999, ["505", "506"], '4s7oQvpnybgERS9ftC3duv4', 2.8, "COVISHIELD")
